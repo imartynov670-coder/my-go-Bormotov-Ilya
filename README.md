@@ -12,7 +12,7 @@
 Чтобы иметь возможность получать обновления автотестов и других частей шаблона, выполните команду:
 
 ```
-git remote add -m main template https://github.com/Yandex-Practicum/go-devops-engineer-magistr-lesson2-tpl.git
+git remote add -m main template https://github.com/Yandex-Practicum/go-magistr-lesson2-tpl.git 
 ```
 
 Для обновления кода автотестов выполните команду:
