@@ -112,4 +112,4 @@ func checkMetrics(stats []float64) {
 			fmt.Printf("Network bandwidth usage high: %.1f Mbit/s available\n", availableBandwidthMbit)
 		}
 	}
-}
+}// Server monitoring script
