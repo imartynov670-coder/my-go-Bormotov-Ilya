@@ -1,3 +1,3 @@
-module github.com/Yandex-Practicum/go-magistr-lesson1-tpl
+module github.com/imartynov670-coder/my-go-Bormotov-Ilya
 
-go 1.25.4
+go 1.21.0
