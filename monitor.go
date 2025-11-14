@@ -3,7 +3,6 @@ package main
 import (
 	"bufio"
 	"fmt"
-	"math"
 	"net/http"
 	"strconv"
 	"strings"
@@ -27,13 +26,10 @@ func main() {
 		stats, err := fetchStats()
 		if err != nil {
 			errorCount++
-			fmt.Printf("Error fetching stats: %v\n", err)
-
 			if errorCount >= maxErrors {
 				fmt.Println("Unable to fetch server statistic")
-				errorCount = 0
+				return
 			}
-
 			time.Sleep(checkInterval)
 			continue
 		}
@@ -80,22 +76,23 @@ func fetchStats() ([]float64, error) {
 }
 
 func checkMetrics(stats []float64) {
+	// 1. Load Average
 	loadAvg := stats[0]
 	if loadAvg > loadThreshold {
 		fmt.Printf("Средняя загрузка слишком высока: %.0f\n", loadAvg)
 	}
 
+	// 2. Memory usage
 	totalMem := stats[1]
 	usedMem := stats[2]
 	if totalMem > 0 {
 		memoryUsage := usedMem / totalMem
 		if memoryUsage > memoryThreshold {
-			// Округляем вниз до целого процента
-			memoryUsagePercent := math.Floor(memoryUsage * 100)
-			fmt.Printf("Слишком высокое использование памяти: %.0f%%\n", memoryUsagePercent)
+			fmt.Printf("Слишком высокое использование памяти: %.0f%%\n", memoryUsage*100)
 		}
 	}
 
+	// 3. Disk space
 	totalDisk := stats[3]
 	usedDisk := stats[4]
 	if totalDisk > 0 {
@@ -106,14 +103,16 @@ func checkMetrics(stats []float64) {
 		}
 	}
 
+	// 4. Network bandwidth
 	totalNet := stats[5]
 	usedNet := stats[6]
 	if totalNet > 0 {
 		networkUsage := usedNet / totalNet
 		if networkUsage > networkThreshold {
-			// Используем правильный коэффициент для Мбит/с
-			availableBandwidthMbit := (totalNet - usedNet) * 8 / (1024 * 1024)
-			fmt.Printf("Высокое использование пропускной способности сети: доступно %.0f Мбит/с\n", availableBandwidthMbit)
+			// Правильный расчет: байты/сек → мегабиты/сек
+			availableBandwidthBytes := totalNet - usedNet
+			availableBandwidthMbits := availableBandwidthBytes * 8 / (1000 * 1000)
+			fmt.Printf("Высокое использование пропускной способности сети: доступно %.0f Мбит/с\n", availableBandwidthMbits)
 		}
 	}
 }
