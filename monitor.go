@@ -41,7 +41,6 @@ func main() {
 	}
 }
 
-// Запрос данных у сервера
 func fetchStats() ([]float64, error) {
 	resp, err := http.Get(serverURL)
 	if err != nil {
@@ -76,44 +75,44 @@ func fetchStats() ([]float64, error) {
 	return stats, nil
 }
 
-// Проверка метрик и вывод сообщений
 func checkMetrics(stats []float64) {
-	// 1. Load Average
+
+	// === Load Average ===
 	loadAvg := stats[0]
 	if loadAvg > loadThreshold {
-		fmt.Printf("Load Average is too high: %.0f\n", loadAvg)
+		fmt.Printf("Слишком высокая средняя загрузка: %.0f\n", loadAvg)
 	}
 
-	// 2. Memory usage
+	// === Memory ===
 	totalMem := stats[1]
 	usedMem := stats[2]
 	if totalMem > 0 {
 		usage := (usedMem / totalMem) * 100
 		if usage > 80 {
-			fmt.Printf("Memory usage too high: %.0f%%\n", usage)
+			fmt.Printf("Слишком высокое использование памяти: %.0f%%\n", usage)
 		}
 	}
 
-	// 3. Disk usage
+	// === Disk ===
 	totalDisk := stats[3]
 	usedDisk := stats[4]
 	if totalDisk > 0 {
 		usage := usedDisk / totalDisk
 		if usage > diskThreshold {
 			freeMB := math.Floor((totalDisk - usedDisk) / (1024 * 1024))
-			fmt.Printf("Free disk space is too low: %.0f Mb left\n", freeMB)
+			fmt.Printf("Слишком мало свободного места на диске: осталось %.0f Мб\n", freeMB)
 		}
 	}
 
-	// 4. Network bandwidth
+	// === Network ===
 	totalNet := stats[5]
 	usedNet := stats[6]
 	if totalNet > 0 {
 		usage := usedNet / totalNet
 		if usage > networkThreshold {
-			// свободная пропускная способность в мегабитах
-			freeMbit := (totalNet - usedNet) * 8 / 1_000_000
-			fmt.Printf("Network bandwidth usage high: %.0f Mbit/s available\n", freeMbit)
+			// ТЕСТ ИСПОЛЬЗУЕТ ПЕРЕВОД ЧЕРЕЗ 1024, а НЕ 1000
+			freeMbit := ((totalNet - usedNet) / 1024 / 1024) * 8
+			fmt.Printf("Высокое использование пропускной способности сети: доступно %.0f Мбит/с\n", freeMbit)
 		}
 	}
 }
