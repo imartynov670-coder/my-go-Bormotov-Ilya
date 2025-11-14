@@ -12,11 +12,11 @@ import (
 
 const (
 	serverURL        = "http://srv.msk01.gigacorp.local/_stats"
-	loadThreshold    = 30.0   // Load Average
-	memoryThreshold  = 80.0   // Memory usage %
-	diskThreshold    = 0.90   // Disk usage ratio
-	networkThreshold = 0.90   // Network usage ratio
-	maxErrors        = 3      // Максимальное количество ошибок подряд
+	loadThreshold    = 30.0
+	memoryThreshold  = 80.0
+	diskThreshold    = 0.90
+	networkThreshold = 0.90
+	maxErrors        = 3
 	checkInterval    = 30 * time.Second
 )
 
@@ -41,7 +41,6 @@ func main() {
 	}
 }
 
-// fetchStats получает данные с сервера
 func fetchStats() ([]float64, error) {
 	resp, err := http.Get(serverURL)
 	if err != nil {
@@ -76,19 +75,24 @@ func fetchStats() ([]float64, error) {
 	return stats, nil
 }
 
-// checkMetrics проверяет пороги и выводит сообщения
 func checkMetrics(s []float64) {
 	load := s[0]
 	totalMem, usedMem := s[1], s[2]
 	totalDisk, usedDisk := s[3], s[4]
 	totalNet, usedNet := s[5], s[6]
 
-	// 1. Load Average
+	// 1. Disk
+	if totalDisk > 0 && usedDisk/totalDisk > diskThreshold {
+		freeMb := math.Floor((totalDisk - usedDisk) / (1024 * 1024))
+		fmt.Printf("Слишком мало свободного места на диске: осталось %.0f Мб\n", freeMb)
+	}
+
+	// 2. Load
 	if load > loadThreshold {
 		fmt.Printf("Слишком высокая средняя загрузка: %.0f\n", load)
 	}
 
-	// 2. Memory usage
+	// 3. Memory
 	if totalMem > 0 {
 		memPercent := math.Floor((usedMem / totalMem) * 100)
 		if memPercent > memoryThreshold {
@@ -96,19 +100,9 @@ func checkMetrics(s []float64) {
 		}
 	}
 
-	// 3. Disk usage
-	if totalDisk > 0 {
-		if usedDisk/totalDisk > diskThreshold {
-			freeMb := math.Floor((totalDisk - usedDisk) / (1024 * 1024))
-			fmt.Printf("Слишком мало свободного места на диске: осталось %.0f Мб\n", freeMb)
-		}
-	}
-
-	// 4. Network usage
-	if totalNet > 0 {
-		if usedNet/totalNet > networkThreshold {
-			freeMbit := math.Floor((totalNet - usedNet) / 1_000_000)
-			fmt.Printf("Высокое использование пропускной способности сети: доступно %.0f Мбит/с\n", freeMbit)
-		}
+	// 4. Network
+	if totalNet > 0 && usedNet/totalNet > networkThreshold {
+		freeMbit := math.Floor((totalNet - usedNet) / 1_000_000)
+		fmt.Printf("Высокая загрузка сети: доступно %.0f Мбит/с\n", freeMbit)
 	}
 }
