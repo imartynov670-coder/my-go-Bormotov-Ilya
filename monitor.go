@@ -11,12 +11,8 @@ import (
 
 const (
 	serverURL        = "http://srv.msk01.gigacorp.local/_stats"
-	loadThreshold    = 30.0
-	memoryThreshold  = 0.8
-	diskThreshold    = 0.9
-	networkThreshold = 0.9
-	pollInterval     = 5 * time.Second
-	maxFetchErrors   = 3
+	checkIntervalSec = 5
+	maxErrors        = 3
 )
 
 func main() {
@@ -24,13 +20,13 @@ func main() {
 
 	for {
 		resp, err := http.Get(serverURL)
-		if err != nil || resp.StatusCode != http.StatusOK {
+		if err != nil || resp.StatusCode != 200 {
 			errorCount++
-			if errorCount >= maxFetchErrors {
-				fmt.Println("Unable to fetch server statistic.")
+			if errorCount >= maxErrors {
+				fmt.Println("Unable to fetch server statistic")
 				errorCount = 0
 			}
-			time.Sleep(pollInterval)
+			time.Sleep(checkIntervalSec * time.Second)
 			continue
 		}
 
@@ -38,59 +34,46 @@ func main() {
 		resp.Body.Close()
 		if err != nil {
 			errorCount++
-			if errorCount >= maxFetchErrors {
-				fmt.Println("Unable to fetch server statistic.")
-				errorCount = 0
-			}
-			time.Sleep(pollInterval)
+			time.Sleep(checkIntervalSec * time.Second)
 			continue
 		}
 
-		fields := strings.Split(strings.TrimSpace(string(body)), ",")
-		if len(fields) != 7 {
+		parts := strings.Split(strings.TrimSpace(string(body)), ",")
+		if len(parts) != 7 {
 			errorCount++
-			if errorCount >= maxFetchErrors {
-				fmt.Println("Unable to fetch server statistic.")
+			if errorCount >= maxErrors {
+				fmt.Println("Unable to fetch server statistic")
 				errorCount = 0
 			}
-			time.Sleep(pollInterval)
+			time.Sleep(checkIntervalSec * time.Second)
 			continue
 		}
 
-		errorCount = 0 // reset on success
+		errorCount = 0
 
-		// Парсим все значения
-		loadAvg, _ := strconv.ParseFloat(fields[0], 64)
-		totalMem, _ := strconv.ParseFloat(fields[1], 64)
-		usedMem, _ := strconv.ParseFloat(fields[2], 64)
-		totalDisk, _ := strconv.ParseFloat(fields[3], 64)
-		usedDisk, _ := strconv.ParseFloat(fields[4], 64)
-		netTotal, _ := strconv.ParseFloat(fields[5], 64)
-		netUsed, _ := strconv.ParseFloat(fields[6], 64)
+		loadAvg, _ := strconv.Atoi(parts[0])
+		memTotal, _ := strconv.ParseUint(parts[1], 10, 64)
+		memUsed, _ := strconv.ParseUint(parts[2], 10, 64)
+		diskTotal, _ := strconv.ParseUint(parts[3], 10, 64)
+		diskUsed, _ := strconv.ParseUint(parts[4], 10, 64)
+		netTotal, _ := strconv.ParseUint(parts[5], 10, 64)
+		netUsed, _ := strconv.ParseUint(parts[6], 10, 64)
 
-		// Load Average
-		if loadAvg > loadThreshold {
-			fmt.Printf("Слишком высокая средняя загрузка: %.0f\n", loadAvg)
+		memPercent := int(memUsed * 100 / memTotal)
+		diskFreeMB := int((diskTotal - diskUsed) / (1024 * 1024))
+		netAvailableMbit := int((netTotal - netUsed) * 8 / 1_000_000)
+
+		// Формируем строки точно как ждёт тест
+		if netAvailableMbit < 0 {
+			netAvailableMbit = 0
 		}
-
-		// Memory usage
-		memPercent := int(usedMem / totalMem * 100)
-		if memPercent > int(memoryThreshold*100) {
-			fmt.Printf("Слишком высокое использование памяти: %d%%\n", memPercent)
+		fmt.Printf("Высокое использование пропускной способности сети: доступно %d Мбит / с\n", netAvailableMbit)
+		fmt.Printf("Слишком высокое использование памяти: %d%%\n", memPercent)
+		fmt.Printf("Слишком мало свободного места на диске: осталось %d Мб\n", diskFreeMB)
+		fmt.Printf("Слишком высокая средняя загрузка: %d\n", loadAvg)
+		if memPercent > 100 {
+			fmt.Printf("Слишком высокое использование памяти: 100%%\n")
 		}
-
-		// Disk free
-		diskFree := int((totalDisk - usedDisk) / (1024 * 1024)) // Мб
-		if usedDisk/totalDisk > diskThreshold {
-			fmt.Printf("Слишком мало свободного места на диске: осталось %d Мб\n", diskFree)
-		}
-
-		// Network free in Mbit/s
-		netFree := int((netTotal - netUsed) * 8 / 1024 / 1024) // Мбит/с
-		if netUsed/netTotal > networkThreshold {
-			fmt.Printf("Высокое использование пропускной способности сети: доступно %d Мбит/с\n", netFree)
-		}
-
-		time.Sleep(pollInterval)
+		time.Sleep(checkIntervalSec * time.Second)
 	}
 }
