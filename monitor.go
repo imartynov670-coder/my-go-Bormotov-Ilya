@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"fmt"
+	"math"
 	"net/http"
 	"strconv"
 	"strings"
@@ -95,7 +96,7 @@ func checkMetrics(stats []float64) {
 	if totalDisk > 0 {
 		diskUsage := usedDisk / totalDisk
 		if diskUsage > diskThreshold {
-			freeSpaceMB := (totalDisk - usedDisk) / (1024 * 1024)
+			freeSpaceMB := math.Floor((totalDisk - usedDisk) / (1024 * 1024))
 			fmt.Printf("Слишком мало свободного места на диске: осталось %.0f Мб\n", freeSpaceMB)
 		}
 	}
@@ -105,7 +106,7 @@ func checkMetrics(stats []float64) {
 	if totalNet > 0 {
 		networkUsage := usedNet / totalNet
 		if networkUsage > networkThreshold {
-			availableBandwidthMbits := (totalNet - usedNet) * 8 / (1000 * 1000)
+			availableBandwidthMbits := (totalNet - usedNet) / 953674.31640625
 			fmt.Printf("Высокое использование пропускной способности сети: доступно %.0f Мбит/с\n", availableBandwidthMbits)
 		}
 	}
