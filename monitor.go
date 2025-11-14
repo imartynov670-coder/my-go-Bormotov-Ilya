@@ -102,7 +102,7 @@ func checkMetrics(s []float64) {
 
 	// 4. Network usage
 	if totalNet > 0 && usedNet/totalNet > networkThreshold {
-		freeMbit := math.Floor((totalNet - usedNet) / 1_000_000)
+		freeMbit := math.Floor((totalNet - usedNet) * 8 / 1_000_000) // перевод из байт/с в Мбит/с
 		fmt.Printf("Высокая загрузка сети: доступно %.0f Мбит/с\n", freeMbit)
 	}
 }
