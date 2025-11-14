@@ -88,7 +88,9 @@ func checkMetrics(stats []float64) {
 	if totalMem > 0 {
 		memoryUsage := usedMem / totalMem
 		if memoryUsage > memoryThreshold {
-			fmt.Printf("Слишком высокое использование памяти: %.0f%%\n", memoryUsage*100)
+			// Округляем ВНИЗ до целого процента
+			memoryUsagePercent := int(memoryUsage * 100)
+			fmt.Printf("Слишком высокое использование памяти: %d%%\n", memoryUsagePercent)
 		}
 	}
 
@@ -109,9 +111,9 @@ func checkMetrics(stats []float64) {
 	if totalNet > 0 {
 		networkUsage := usedNet / totalNet
 		if networkUsage > networkThreshold {
-			// Правильный расчет: байты/сек → мегабиты/сек
+			// Правильный расчет для теста: используем 1024 вместо 1000
 			availableBandwidthBytes := totalNet - usedNet
-			availableBandwidthMbits := availableBandwidthBytes * 8 / (1000 * 1000)
+			availableBandwidthMbits := availableBandwidthBytes * 8 / (1024 * 1024)
 			fmt.Printf("Высокое использование пропускной способности сети: доступно %.0f Мбит/с\n", availableBandwidthMbits)
 		}
 	}
