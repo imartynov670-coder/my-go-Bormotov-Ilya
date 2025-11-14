@@ -1,9 +1,8 @@
 package main
 
 import (
-	"bufio"
 	"fmt"
-	"math"
+	"io/ioutil"
 	"net/http"
 	"strconv"
 	"strings"
@@ -13,100 +12,85 @@ import (
 const (
 	serverURL        = "http://srv.msk01.gigacorp.local/_stats"
 	loadThreshold    = 30.0
-	memoryThreshold  = 80.0
-	diskThreshold    = 0.90
-	networkThreshold = 0.90
-	maxErrors        = 3
-	checkInterval    = 30 * time.Second
+	memoryThreshold  = 0.8
+	diskThreshold    = 0.9
+	networkThreshold = 0.9
+	pollInterval     = 5 * time.Second
+	maxFetchErrors   = 3
 )
 
 func main() {
 	errorCount := 0
 
 	for {
-		stats, err := fetchStats()
-		if err != nil {
+		resp, err := http.Get(serverURL)
+		if err != nil || resp.StatusCode != http.StatusOK {
 			errorCount++
-			if errorCount >= maxErrors {
-				fmt.Println("Unable to fetch server statistic")
-				return
+			if errorCount >= maxFetchErrors {
+				fmt.Println("Unable to fetch server statistic.")
+				errorCount = 0
 			}
-			time.Sleep(checkInterval)
+			time.Sleep(pollInterval)
 			continue
 		}
 
-		errorCount = 0
-		checkMetrics(stats)
-		time.Sleep(checkInterval)
-	}
-}
-
-func fetchStats() ([]float64, error) {
-	resp, err := http.Get(serverURL)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("bad status: %s", resp.Status)
-	}
-
-	scanner := bufio.NewScanner(resp.Body)
-	if !scanner.Scan() {
-		return nil, fmt.Errorf("empty response")
-	}
-
-	line := strings.TrimSpace(scanner.Text())
-	parts := strings.Split(line, ",")
-	if len(parts) != 7 {
-		return nil, fmt.Errorf("invalid data format")
-	}
-
-	stats := make([]float64, 7)
-	for i, p := range parts {
-		val, err := strconv.ParseFloat(strings.TrimSpace(p), 64)
+		body, err := ioutil.ReadAll(resp.Body)
+		resp.Body.Close()
 		if err != nil {
-			return nil, fmt.Errorf("invalid number: %v", err)
+			errorCount++
+			if errorCount >= maxFetchErrors {
+				fmt.Println("Unable to fetch server statistic.")
+				errorCount = 0
+			}
+			time.Sleep(pollInterval)
+			continue
 		}
-		stats[i] = val
-	}
 
-	return stats, nil
-}
-
-func checkMetrics(s []float64) {
-	load := s[0]
-	totalMem, usedMem := s[1], s[2]
-	totalDisk, usedDisk := s[3], s[4]
-	totalNet, usedNet := s[5], s[6]
-
-	// 1. Load Average
-	if load > loadThreshold {
-		fmt.Printf("Слишком высокая средняя загрузка: %.0f\n", load)
-	}
-
-	// 2. Memory usage
-	if totalMem > 0 {
-		memPercent := math.Round((usedMem / totalMem) * 100)
-		if memPercent > memoryThreshold {
-			fmt.Printf("Слишком высокое использование памяти: %.0f%%\n", memPercent)
+		fields := strings.Split(strings.TrimSpace(string(body)), ",")
+		if len(fields) != 7 {
+			errorCount++
+			if errorCount >= maxFetchErrors {
+				fmt.Println("Unable to fetch server statistic.")
+				errorCount = 0
+			}
+			time.Sleep(pollInterval)
+			continue
 		}
-	}
 
-	// 3. Disk usage
-	if totalDisk > 0 {
-		freeMb := math.Floor((totalDisk - usedDisk) / (1024 * 1024))
+		errorCount = 0 // reset on success
+
+		// Парсим все значения
+		loadAvg, _ := strconv.ParseFloat(fields[0], 64)
+		totalMem, _ := strconv.ParseFloat(fields[1], 64)
+		usedMem, _ := strconv.ParseFloat(fields[2], 64)
+		totalDisk, _ := strconv.ParseFloat(fields[3], 64)
+		usedDisk, _ := strconv.ParseFloat(fields[4], 64)
+		netTotal, _ := strconv.ParseFloat(fields[5], 64)
+		netUsed, _ := strconv.ParseFloat(fields[6], 64)
+
+		// Load Average
+		if loadAvg > loadThreshold {
+			fmt.Printf("Слишком высокая средняя загрузка: %.0f\n", loadAvg)
+		}
+
+		// Memory usage
+		memPercent := int(usedMem / totalMem * 100)
+		if memPercent > int(memoryThreshold*100) {
+			fmt.Printf("Слишком высокое использование памяти: %d%%\n", memPercent)
+		}
+
+		// Disk free
+		diskFree := int((totalDisk - usedDisk) / (1024 * 1024)) // Мб
 		if usedDisk/totalDisk > diskThreshold {
-			fmt.Printf("Слишком мало свободного места на диске: осталось %.0f Мб\n", freeMb)
+			fmt.Printf("Слишком мало свободного места на диске: осталось %d Мб\n", diskFree)
 		}
-	}
 
-	// 4. Network usage
-	if totalNet > 0 {
-		freeMbit := math.Floor((totalNet - usedNet) * 8 / 1_000_000) // байт/с → Мбит/с
-		if usedNet/totalNet > networkThreshold {
-			fmt.Printf("Высокое использование пропускной способности сети: доступно %.0f Мбит/с\n", freeMbit)
+		// Network free in Mbit/s
+		netFree := int((netTotal - netUsed) * 8 / 1024 / 1024) // Мбит/с
+		if netUsed/netTotal > networkThreshold {
+			fmt.Printf("Высокое использование пропускной способности сети: доступно %d Мбит/с\n", netFree)
 		}
+
+		time.Sleep(pollInterval)
 	}
 }
