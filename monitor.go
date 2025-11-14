@@ -81,7 +81,7 @@ func fetchStats() ([]float64, error) {
 func checkMetrics(stats []float64) {
 	loadAvg := stats[0]
 	if loadAvg > loadThreshold {
-		fmt.Printf("Load Average is too high: %.2f\n", loadAvg)
+		fmt.Printf("Средняя загрузка слишком высока: %.0f\n", loadAvg)
 	}
 
 	totalMem := stats[1]
@@ -89,7 +89,7 @@ func checkMetrics(stats []float64) {
 	if totalMem > 0 {
 		memoryUsage := usedMem / totalMem
 		if memoryUsage > memoryThreshold {
-			fmt.Printf("Memory usage too high: %.1f%%\n", memoryUsage*100)
+			fmt.Printf("Слишком высокое использование памяти: %.0f%%\n", memoryUsage*100)
 		}
 	}
 
@@ -99,7 +99,7 @@ func checkMetrics(stats []float64) {
 		diskUsage := usedDisk / totalDisk
 		if diskUsage > diskThreshold {
 			freeSpaceMB := (totalDisk - usedDisk) / (1024 * 1024)
-			fmt.Printf("Free disk space is too low: %.0f Mb left\n", freeSpaceMB)
+			fmt.Printf("Слишком мало свободного места на диске: осталось %.0f Мб\n", freeSpaceMB)
 		}
 	}
 
@@ -108,8 +108,9 @@ func checkMetrics(stats []float64) {
 	if totalNet > 0 {
 		networkUsage := usedNet / totalNet
 		if networkUsage > networkThreshold {
-			availableBandwidthMbit := (totalNet - usedNet) * 8 / (1024 * 1024)
-			fmt.Printf("Network bandwidth usage high: %.1f Mbit/s available\n", availableBandwidthMbit)
+			// Исправленный расчет: байты/сек → мегабиты/сек
+			availableBandwidthMbit := (totalNet - usedNet) * 8 / (1000 * 1000)
+			fmt.Printf("Высокое использование пропускной способности сети: доступно %.0f Мбит/с\n", availableBandwidthMbit)
 		}
 	}
-}// Server monitoring script
+}
