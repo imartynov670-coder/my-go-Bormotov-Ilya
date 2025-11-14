@@ -10,90 +10,86 @@ import (
 )
 
 const (
-	url           = "http://srv.msk01.gigacorp.local/_stats"
-	loadLimit     = 30
-	memUsageLimit = 0.8
-	diskUsageLimit = 0.9
-	netUsageLimit  = 0.9
-	pollInterval  = 2 * time.Second
-	maxErrors     = 3
+	serverURL        = "http://srv.msk01.gigacorp.local/_stats"
+	pollInterval     = 5 * time.Second
+	maxErrorCount    = 3
+	loadThreshold    = 30
+	memUsagePercent  = 80
+	diskUsagePercent = 90
+	netUsagePercent  = 90
 )
-
-func fetchStats() ([]int64, error) {
-	resp, err := http.Get(url)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != 200 {
-		return nil, fmt.Errorf("HTTP status %d", resp.StatusCode)
-	}
-	body, err := ioutil.ReadAll(resp.Body)
-	if err != nil {
-		return nil, err
-	}
-	parts := strings.Split(strings.TrimSpace(string(body)), ",")
-	if len(parts) != 7 {
-		return nil, fmt.Errorf("invalid data length")
-	}
-	nums := make([]int64, 7)
-	for i, p := range parts {
-		nums[i], err = strconv.ParseInt(p, 10, 64)
-		if err != nil {
-			return nil, fmt.Errorf("invalid number: %v", err)
-		}
-	}
-	return nums, nil
-}
-
-func checkAndPrint(stats []int64) {
-	load := stats[0]
-	totalMem := stats[1]
-	usedMem := stats[2]
-	totalDisk := stats[3]
-	usedDisk := stats[4]
-	netTotal := stats[5]
-	netUsed := stats[6]
-
-	// Load
-	if load > loadLimit {
-		fmt.Printf("Слишком высокая средняя загрузка: %d\n", load)
-	}
-
-	// Memory
-	memPercent := int(float64(usedMem) / float64(totalMem) * 100)
-	if float64(usedMem)/float64(totalMem) > memUsageLimit {
-		fmt.Printf("Слишком высокое использование памяти: %d%%\n", memPercent)
-	}
-
-	// Disk
-	freeDisk := totalDisk - usedDisk
-	if float64(usedDisk)/float64(totalDisk) > diskUsageLimit {
-		fmt.Printf("Слишком мало свободного места на диске: осталось %d Мб\n", freeDisk/1024/1024)
-	}
-
-	// Network
-	freeNet := netTotal - netUsed
-	if float64(netUsed)/float64(netTotal) > netUsageLimit {
-		// Преобразуем в Мбит/с
-		mbit := freeNet * 8 / 1000 / 1000
-		fmt.Printf("Высокая загрузка сети: доступно %d Мбит/с\n", mbit)
-	}
-}
 
 func main() {
 	errorCount := 0
+
 	for {
-		stats, err := fetchStats()
+		resp, err := http.Get(serverURL)
+		if err != nil || resp.StatusCode != 200 {
+			errorCount++
+			if errorCount >= maxErrorCount {
+				fmt.Println("Unable to fetch server statistic")
+				errorCount = 0
+			}
+			time.Sleep(pollInterval)
+			continue
+		}
+
+		body, err := ioutil.ReadAll(resp.Body)
+		resp.Body.Close()
 		if err != nil {
 			errorCount++
-			if errorCount >= maxErrors {
-				fmt.Println("Unable to fetch server statistic")
-			}
-		} else {
-			errorCount = 0
-			checkAndPrint(stats)
+			time.Sleep(pollInterval)
+			continue
 		}
+
+		values := strings.Split(strings.TrimSpace(string(body)), ",")
+		if len(values) != 7 {
+			errorCount++
+			time.Sleep(pollInterval)
+			continue
+		}
+
+		errorCount = 0 // сброс ошибок при успешном получении
+
+		// парсим целые значения
+		load, _ := strconv.ParseInt(values[0], 10, 64)
+		totalMem, _ := strconv.ParseInt(values[1], 10, 64)
+		usedMem, _ := strconv.ParseInt(values[2], 10, 64)
+		totalDisk, _ := strconv.ParseInt(values[3], 10, 64)
+		usedDisk, _ := strconv.ParseInt(values[4], 10, 64)
+		totalNet, _ := strconv.ParseInt(values[5], 10, 64)
+		usedNet, _ := strconv.ParseInt(values[6], 10, 64)
+
+		// собираем все сообщения в слайс
+		var msgs []string
+
+		if load > loadThreshold {
+			msgs = append(msgs, fmt.Sprintf("Слишком высокая средняя загрузка: %d", load))
+		}
+
+		memPercent := int(usedMem * 100 / totalMem)
+		if memPercent > memUsagePercent {
+			msgs = append(msgs, fmt.Sprintf("Слишком высокое использование памяти: %d%%", memPercent))
+		}
+
+		freeDisk := totalDisk - usedDisk
+		if usedDisk*100/totalDisk > diskUsagePercent {
+			msgs = append(msgs, fmt.Sprintf("Слишком мало свободного места на диске: осталось %d Мб", freeDisk/1024/1024))
+		}
+
+		freeNet := totalNet - usedNet
+		if usedNet*100/totalNet > netUsagePercent {
+			msgs = append(msgs, fmt.Sprintf("Высокая загрузка сети: доступно %d Мбит/с", freeNet*8/1024/1024))
+		}
+
+		// выводим ровно 7 сообщений (или меньше, если их меньше)
+		for i, msg := range msgs {
+			if i >= 7 {
+				break
+			}
+			fmt.Println(msg)
+		}
+
 		time.Sleep(pollInterval)
 	}
 }
