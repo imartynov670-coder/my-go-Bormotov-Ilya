@@ -12,11 +12,11 @@ import (
 
 const (
 	serverURL        = "http://srv.msk01.gigacorp.local/_stats"
-	loadThreshold    = 30.0
-	memoryThreshold  = 0.80
-	diskThreshold    = 0.90
-	networkThreshold = 0.90
-	maxErrors        = 3
+	loadThreshold    = 30.0   // Load Average
+	memoryThreshold  = 80.0   // Memory usage %
+	diskThreshold    = 0.90   // Disk usage ratio
+	networkThreshold = 0.90   // Network usage ratio
+	maxErrors        = 3      // Максимальное количество ошибок подряд
 	checkInterval    = 30 * time.Second
 )
 
@@ -41,6 +41,7 @@ func main() {
 	}
 }
 
+// fetchStats получает данные с сервера
 func fetchStats() ([]float64, error) {
 	resp, err := http.Get(serverURL)
 	if err != nil {
@@ -49,7 +50,7 @@ func fetchStats() ([]float64, error) {
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("bad status")
+		return nil, fmt.Errorf("bad status: %s", resp.Status)
 	}
 
 	scanner := bufio.NewScanner(resp.Body)
@@ -60,14 +61,14 @@ func fetchStats() ([]float64, error) {
 	line := strings.TrimSpace(scanner.Text())
 	parts := strings.Split(line, ",")
 	if len(parts) != 7 {
-		return nil, fmt.Errorf("invalid fields count")
+		return nil, fmt.Errorf("invalid data format")
 	}
 
 	stats := make([]float64, 7)
 	for i, p := range parts {
 		val, err := strconv.ParseFloat(strings.TrimSpace(p), 64)
 		if err != nil {
-			return nil, fmt.Errorf("invalid number")
+			return nil, fmt.Errorf("invalid number: %v", err)
 		}
 		stats[i] = val
 	}
@@ -75,43 +76,38 @@ func fetchStats() ([]float64, error) {
 	return stats, nil
 }
 
-func checkMetrics(stats []float64) {
+// checkMetrics проверяет пороги и выводит сообщения
+func checkMetrics(s []float64) {
+	load := s[0]
+	totalMem, usedMem := s[1], s[2]
+	totalDisk, usedDisk := s[3], s[4]
+	totalNet, usedNet := s[5], s[6]
 
-	// === Load Average ===
-	loadAvg := stats[0]
-	if loadAvg > loadThreshold {
-		fmt.Printf("Слишком высокая средняя загрузка: %.0f\n", loadAvg)
+	// 1. Load Average
+	if load > loadThreshold {
+		fmt.Printf("Слишком высокая средняя загрузка: %.0f\n", load)
 	}
 
-	// === Memory ===
-	totalMem := stats[1]
-	usedMem := stats[2]
+	// 2. Memory usage
 	if totalMem > 0 {
-		usage := (usedMem / totalMem) * 100
-		if usage > 80 {
-			fmt.Printf("Слишком высокое использование памяти: %.0f%%\n", usage)
+		memPercent := math.Floor((usedMem / totalMem) * 100)
+		if memPercent > memoryThreshold {
+			fmt.Printf("Слишком высокое использование памяти: %.0f%%\n", memPercent)
 		}
 	}
 
-	// === Disk ===
-	totalDisk := stats[3]
-	usedDisk := stats[4]
+	// 3. Disk usage
 	if totalDisk > 0 {
-		usage := usedDisk / totalDisk
-		if usage > diskThreshold {
-			freeMB := math.Floor((totalDisk - usedDisk) / (1024 * 1024))
-			fmt.Printf("Слишком мало свободного места на диске: осталось %.0f Мб\n", freeMB)
+		if usedDisk/totalDisk > diskThreshold {
+			freeMb := math.Floor((totalDisk - usedDisk) / (1024 * 1024))
+			fmt.Printf("Слишком мало свободного места на диске: осталось %.0f Мб\n", freeMb)
 		}
 	}
 
-	// === Network ===
-	totalNet := stats[5]
-	usedNet := stats[6]
+	// 4. Network usage
 	if totalNet > 0 {
-		usage := usedNet / totalNet
-		if usage > networkThreshold {
-			// ТЕСТ ИСПОЛЬЗУЕТ ПЕРЕВОД ЧЕРЕЗ 1024, а НЕ 1000
-			freeMbit := ((totalNet - usedNet) / 1024 / 1024) * 8
+		if usedNet/totalNet > networkThreshold {
+			freeMbit := math.Floor((totalNet - usedNet) / 1_000_000)
 			fmt.Printf("Высокое использование пропускной способности сети: доступно %.0f Мбит/с\n", freeMbit)
 		}
 	}
