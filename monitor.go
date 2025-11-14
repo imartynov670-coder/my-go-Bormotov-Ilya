@@ -111,9 +111,9 @@ func checkMetrics(stats []float64) {
 	if totalNet > 0 {
 		networkUsage := usedNet / totalNet
 		if networkUsage > networkThreshold {
-			// Правильный расчет для теста: используем 1024 вместо 1000
-			availableBandwidthBytes := totalNet - usedNet
-			availableBandwidthMbits := availableBandwidthBytes * 8 / (1024 * 1024)
+			// ПРАВИЛЬНЫЙ РАСЧЕТ: байты/сек → мегабиты/сек
+			// Используем коэффициент 125000 (1000*1000/8) вместо 131072 (1024*1024/8)
+			availableBandwidthMbits := (totalNet - usedNet) / 125000
 			fmt.Printf("Высокое использование пропускной способности сети: доступно %.0f Мбит/с\n", availableBandwidthMbits)
 		}
 	}
