@@ -88,21 +88,25 @@ func checkMetrics(s []float64) {
 
 	// 2. Memory usage
 	if totalMem > 0 {
-		memPercent := math.Floor((usedMem / totalMem) * 100)
+		memPercent := math.Round((usedMem / totalMem) * 100)
 		if memPercent > memoryThreshold {
 			fmt.Printf("Слишком высокое использование памяти: %.0f%%\n", memPercent)
 		}
 	}
 
 	// 3. Disk usage
-	if totalDisk > 0 && usedDisk/totalDisk > diskThreshold {
+	if totalDisk > 0 {
 		freeMb := math.Floor((totalDisk - usedDisk) / (1024 * 1024))
-		fmt.Printf("Слишком мало свободного места на диске: осталось %.0f Мб\n", freeMb)
+		if usedDisk/totalDisk > diskThreshold {
+			fmt.Printf("Слишком мало свободного места на диске: осталось %.0f Мб\n", freeMb)
+		}
 	}
 
 	// 4. Network usage
-	if totalNet > 0 && usedNet/totalNet > networkThreshold {
-		freeMbit := math.Floor((totalNet - usedNet) * 8 / 1_000_000) // перевод из байт/с в Мбит/с
-		fmt.Printf("Высокая загрузка сети: доступно %.0f Мбит/с\n", freeMbit)
+	if totalNet > 0 {
+		freeMbit := math.Floor((totalNet - usedNet) * 8 / 1_000_000) // байт/с → Мбит/с
+		if usedNet/totalNet > networkThreshold {
+			fmt.Printf("Высокое использование пропускной способности сети: доступно %.0f Мбит/с\n", freeMbit)
+		}
 	}
 }
