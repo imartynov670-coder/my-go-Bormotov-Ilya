@@ -8,206 +8,331 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// Структуры для парсинга YAML
-type Pod struct {
-	APIVersion string     `yaml:"apiVersion"`
-	Kind       string     `yaml:"kind"`
-	Metadata   ObjectMeta `yaml:"metadata"`
-	Spec       PodSpec    `yaml:"spec"`
+type Validator struct {
+	errors []string
 }
 
-type ObjectMeta struct {
-	Name      string            `yaml:"name"`
-	Namespace string            `yaml:"namespace,omitempty"`
-	Labels    map[string]string `yaml:"labels,omitempty"`
+func (v *Validator) addError(message string) {
+	v.errors = append(v.errors, message)
 }
 
-type PodSpec struct {
-	OS        *PodOS      `yaml:"os,omitempty"`
-	Containers []Container `yaml:"containers"`
-}
-
-type PodOS struct {
-	Name string `yaml:"name"`
-}
-
-type Container struct {
-	Name          string               `yaml:"name"`
-	Image         string               `yaml:"image"`
-	Ports         []ContainerPort      `yaml:"ports,omitempty"`
-	ReadinessProbe *Probe              `yaml:"readinessProbe,omitempty"`
-	LivenessProbe  *Probe              `yaml:"livenessProbe,omitempty"`
-	Resources     ResourceRequirements `yaml:"resources"`
-}
-
-type ContainerPort struct {
-	ContainerPort int    `yaml:"containerPort"`
-	Protocol     string `yaml:"protocol,omitempty"`
-}
-
-type Probe struct {
-	HTTPGet HTTPGetAction `yaml:"httpGet"`
-}
-
-type HTTPGetAction struct {
-	Path string `yaml:"path"`
-	Port int    `yaml:"port"`
-}
-
-type ResourceRequirements struct {
-	Requests map[string]interface{} `yaml:"requests,omitempty"`
-	Limits   map[string]interface{} `yaml:"limits,omitempty"`
-}
-
-func validateYAML(data []byte) error {
-	var pod Pod
-	if err := yaml.Unmarshal(data, &pod); err != nil {
-		return fmt.Errorf("invalid YAML format: %v", err)
-	}
-
-	// Валидация полей верхнего уровня
-	if pod.APIVersion != "v1" {
-		return fmt.Errorf("apiVersion must be 'v1'")
-	}
-	if pod.Kind != "Pod" {
-		return fmt.Errorf("kind must be 'Pod'")
-	}
-
-	// Валидация metadata
-	if pod.Metadata.Name == "" {
-		return fmt.Errorf("metadata.name is required")
-	}
-
-	// Валидация spec
-	if len(pod.Spec.Containers) == 0 {
-		return fmt.Errorf("at least one container is required")
-	}
-
-	// Валидация PodOS если указан
-	if pod.Spec.OS != nil {
-		if pod.Spec.OS.Name != "linux" && pod.Spec.OS.Name != "windows" {
-			return fmt.Errorf("os.name must be 'linux' or 'windows'")
-		}
-	}
-
-	// Валидация контейнеров
-	for i, container := range pod.Spec.Containers {
-		if err := validateContainer(container, i); err != nil {
-			return err
-		}
-	}
-
-	return nil
-}
-
-func validateContainer(container Container, index int) error {
-	// Проверка имени контейнера
-	if container.Name == "" {
-		return fmt.Errorf("container[%d].name is required", index)
-	}
+func validateYAML(data []byte, filename string) []string {
+	var validator Validator
 	
-	// Проверка формата имени (snake_case)
-	snakeCaseRegex := regexp.MustCompile(`^[a-z]+(_[a-z]+)*$`)
-	if !snakeCaseRegex.MatchString(container.Name) {
-		return fmt.Errorf("container[%d].name must be in snake_case format", index)
+	// Парсим весь документ как generic YAML
+	var document map[string]interface{}
+	if err := yaml.Unmarshal(data, &document); err != nil {
+		validator.addError(fmt.Sprintf("Validation failed: invalid YAML format: %v", err))
+		return validator.errors
 	}
 
-	// Проверка image
-	if container.Image == "" {
-		return fmt.Errorf("container[%d].image is required", index)
-	}
-	if !strings.HasPrefix(container.Image, "registry.bigbrother.io/") {
-		return fmt.Errorf("container[%d].image must be in domain registry.bigbrother.io", index)
-	}
-	if !strings.Contains(container.Image, ":") {
-		return fmt.Errorf("container[%d].image must have a version tag", index)
-	}
-
-	// Проверка ports
-	for j, port := range container.Ports {
-		if port.ContainerPort <= 0 || port.ContainerPort >= 65536 {
-			return fmt.Errorf("container[%d].ports[%d].containerPort must be between 1 and 65535", index, j)
-		}
-		if port.Protocol != "" && port.Protocol != "TCP" && port.Protocol != "UDP" {
-			return fmt.Errorf("container[%d].ports[%d].protocol must be 'TCP' or 'UDP'", index, j)
-		}
-	}
-
-	// Проверка probes
-	if container.ReadinessProbe != nil {
-		if err := validateProbe(container.ReadinessProbe, index, "readinessProbe"); err != nil {
-			return err
-		}
-	}
-	if container.LivenessProbe != nil {
-		if err := validateProbe(container.LivenessProbe, index, "livenessProbe"); err != nil {
-			return err
-		}
-	}
-
-	// Проверка resources
-	return validateResources(container.Resources, index)
+	// Валидируем верхнеуровневые поля
+	validator.validateTopLevel(document, filename)
+	
+	return validator.errors
 }
 
-func validateProbe(probe *Probe, containerIndex int, probeType string) error {
-	if probe.HTTPGet.Path == "" {
-		return fmt.Errorf("container[%d].%s.httpGet.path is required", containerIndex, probeType)
+func (v *Validator) validateTopLevel(document map[string]interface{}, filename string) {
+	// apiVersion
+	if apiVersion, exists := document["apiVersion"]; !exists {
+		v.addError(fmt.Sprintf("%s: apiVersion is required", filename))
+	} else if apiVersionStr, ok := apiVersion.(string); !ok {
+		v.addError(fmt.Sprintf("%s: apiVersion must be string", filename))
+	} else if apiVersionStr != "v1" {
+		v.addError(fmt.Sprintf("%s: apiVersion must be 'v1'", filename))
 	}
-	if !strings.HasPrefix(probe.HTTPGet.Path, "/") {
-		return fmt.Errorf("container[%d].%s.httpGet.path must be absolute", containerIndex, probeType)
+
+	// kind
+	if kind, exists := document["kind"]; !exists {
+		v.addError(fmt.Sprintf("%s: kind is required", filename))
+	} else if kindStr, ok := kind.(string); !ok {
+		v.addError(fmt.Sprintf("%s: kind must be string", filename))
+	} else if kindStr != "Pod" {
+		v.addError(fmt.Sprintf("%s: kind must be 'Pod'", filename))
 	}
-	if probe.HTTPGet.Port <= 0 || probe.HTTPGet.Port >= 65536 {
-		return fmt.Errorf("container[%d].%s.httpGet.port must be between 1 and 65535", containerIndex, probeType)
+
+	// metadata
+	if metadata, exists := document["metadata"]; !exists {
+		v.addError(fmt.Sprintf("%s: metadata is required", filename))
+	} else if metadataMap, ok := metadata.(map[string]interface{}); ok {
+		v.validateMetadata(metadataMap, filename)
+	} else {
+		v.addError(fmt.Sprintf("%s: metadata must be an object", filename))
 	}
-	return nil
+
+	// spec
+	if spec, exists := document["spec"]; !exists {
+		v.addError(fmt.Sprintf("%s: spec is required", filename))
+	} else if specMap, ok := spec.(map[string]interface{}); ok {
+		v.validateSpec(specMap, filename)
+	} else {
+		v.addError(fmt.Sprintf("%s: spec must be an object", filename))
+	}
 }
 
-func validateResources(resources ResourceRequirements, containerIndex int) error {
-	// Валидация requests
-	for key, value := range resources.Requests {
-		if err := validateResource(key, value, containerIndex, "requests"); err != nil {
-			return err
+func (v *Validator) validateMetadata(metadata map[string]interface{}, filename string) {
+	// name
+	if name, exists := metadata["name"]; !exists {
+		v.addError(fmt.Sprintf("%s: metadata.name is required", filename))
+	} else if _, ok := name.(string); !ok {
+		v.addError(fmt.Sprintf("%s: metadata.name must be string", filename))
+	}
+
+	// namespace (optional)
+	if namespace, exists := metadata["namespace"]; exists {
+		if _, ok := namespace.(string); !ok {
+			v.addError(fmt.Sprintf("%s: metadata.namespace must be string", filename))
 		}
 	}
 
-	// Валидация limits
-	for key, value := range resources.Limits {
-		if err := validateResource(key, value, containerIndex, "limits"); err != nil {
-			return err
-		}
-	}
-
-	return nil
-}
-
-func validateResource(key string, value interface{}, containerIndex int, resourceType string) error {
-	switch key {
-	case "cpu":
-		// cpu должен быть integer
-		if cpu, ok := value.(int); !ok {
-			return fmt.Errorf("container[%d].resources.%s.cpu must be an integer", containerIndex, resourceType)
-		} else if cpu <= 0 {
-			return fmt.Errorf("container[%d].resources.%s.cpu must be positive", containerIndex, resourceType)
-		}
-	case "memory":
-		// memory должен быть string с суффиксом Gi, Mi, Ki
-		if memory, ok := value.(string); !ok {
-			return fmt.Errorf("container[%d].resources.%s.memory must be a string", containerIndex, resourceType)
-		} else {
-			validSuffixes := []string{"Gi", "Mi", "Ki"}
-			valid := false
-			for _, suffix := range validSuffixes {
-				if strings.HasSuffix(memory, suffix) {
-					valid = true
-					break
+	// labels (optional)
+	if labels, exists := metadata["labels"]; exists {
+		if labelsMap, ok := labels.(map[string]interface{}); ok {
+			for key, value := range labelsMap {
+				if _, ok := value.(string); !ok {
+					v.addError(fmt.Sprintf("%s: metadata.labels.%s must be string", filename, key))
 				}
 			}
-			if !valid {
-				return fmt.Errorf("container[%d].resources.%s.memory must end with Gi, Mi, or Ki", containerIndex, resourceType)
+		} else {
+			v.addError(fmt.Sprintf("%s: metadata.labels must be an object", filename))
+		}
+	}
+}
+
+func (v *Validator) validateSpec(spec map[string]interface{}, filename string) {
+	// os (optional)
+	if os, exists := spec["os"]; exists {
+		v.validateOS(os, filename)
+	}
+
+	// containers
+	if containers, exists := spec["containers"]; !exists {
+		v.addError(fmt.Sprintf("%s: spec.containers is required", filename))
+	} else if containersList, ok := containers.([]interface{}); ok {
+		if len(containersList) == 0 {
+			v.addError(fmt.Sprintf("%s: at least one container is required", filename))
+		}
+		for i, container := range containersList {
+			if containerMap, ok := container.(map[string]interface{}); ok {
+				v.validateContainer(containerMap, i, filename)
+			} else {
+				v.addError(fmt.Sprintf("%s: spec.containers[%d] must be an object", filename, i))
 			}
 		}
-	default:
-		return fmt.Errorf("container[%d].resources.%s.%s: unknown resource type", containerIndex, resourceType, key)
+	} else {
+		v.addError(fmt.Sprintf("%s: spec.containers must be an array", filename))
 	}
-	return nil
+}
+
+func (v *Validator) validateOS(os interface{}, filename string) {
+	if osMap, ok := os.(map[string]interface{}); ok {
+		if name, exists := osMap["name"]; !exists {
+			v.addError(fmt.Sprintf("%s: os.name is required", filename))
+		} else if nameStr, ok := name.(string); ok {
+			if nameStr != "linux" && nameStr != "windows" {
+				v.addError(fmt.Sprintf("%s: os has unsupported value '%s'", filename, nameStr))
+			}
+		} else {
+			v.addError(fmt.Sprintf("%s: os.name must be string", filename))
+		}
+	} else {
+		// Если os не объект, а что-то другое (например, строка)
+		v.addError(fmt.Sprintf("%s: os must be an object", filename))
+	}
+}
+
+func (v *Validator) validateContainer(container map[string]interface{}, index int, filename string) {
+	// name
+	if name, exists := container["name"]; !exists {
+		v.addError(fmt.Sprintf("%s: container[%d].name is required", filename, index))
+	} else if nameStr, ok := name.(string); ok {
+		// Проверка snake_case
+		snakeCaseRegex := regexp.MustCompile(`^[a-z]+(_[a-z]+)*$`)
+		if !snakeCaseRegex.MatchString(nameStr) {
+			v.addError(fmt.Sprintf("%s: container[%d].name must be in snake_case format", filename, index))
+		}
+	} else {
+		v.addError(fmt.Sprintf("%s: container[%d].name must be string", filename, index))
+	}
+
+	// image
+	if image, exists := container["image"]; !exists {
+		v.addError(fmt.Sprintf("%s: container[%d].image is required", filename, index))
+	} else if imageStr, ok := image.(string); ok {
+		if !strings.HasPrefix(imageStr, "registry.bigbrother.io/") {
+			v.addError(fmt.Sprintf("%s: container[%d].image must be in domain registry.bigbrother.io", filename, index))
+		}
+		if !strings.Contains(imageStr, ":") {
+			v.addError(fmt.Sprintf("%s: container[%d].image must have a version tag", filename, index))
+		}
+	} else {
+		v.addError(fmt.Sprintf("%s: container[%d].image must be string", filename, index))
+	}
+
+	// ports (optional)
+	if ports, exists := container["ports"]; exists {
+		if portsList, ok := ports.([]interface{}); ok {
+			for i, port := range portsList {
+				if portMap, ok := port.(map[string]interface{}); ok {
+					v.validateContainerPort(portMap, index, i, filename)
+				} else {
+					v.addError(fmt.Sprintf("%s: container[%d].ports[%d] must be an object", filename, index, i))
+				}
+			}
+		} else {
+			v.addError(fmt.Sprintf("%s: container[%d].ports must be an array", filename, index))
+		}
+	}
+
+	// resources
+	if resources, exists := container["resources"]; !exists {
+		v.addError(fmt.Sprintf("%s: container[%d].resources is required", filename, index))
+	} else if resourcesMap, ok := resources.(map[string]interface{}); ok {
+		v.validateResources(resourcesMap, index, filename)
+	} else {
+		v.addError(fmt.Sprintf("%s: container[%d].resources must be an object", filename, index))
+	}
+
+	// readinessProbe (optional)
+	if probe, exists := container["readinessProbe"]; exists {
+		if probeMap, ok := probe.(map[string]interface{}); ok {
+			v.validateProbe(probeMap, index, "readinessProbe", filename)
+		} else {
+			v.addError(fmt.Sprintf("%s: container[%d].readinessProbe must be an object", filename, index))
+		}
+	}
+
+	// livenessProbe (optional)
+	if probe, exists := container["livenessProbe"]; exists {
+		if probeMap, ok := probe.(map[string]interface{}); ok {
+			v.validateProbe(probeMap, index, "livenessProbe", filename)
+		} else {
+			v.addError(fmt.Sprintf("%s: container[%d].livenessProbe must be an object", filename, index))
+		}
+	}
+}
+
+func (v *Validator) validateContainerPort(port map[string]interface{}, containerIndex, portIndex int, filename string) {
+	// containerPort
+	if containerPort, exists := port["containerPort"]; !exists {
+		v.addError(fmt.Sprintf("%s: container[%d].ports[%d].containerPort is required", filename, containerIndex, portIndex))
+	} else {
+		switch val := containerPort.(type) {
+		case int:
+			if val <= 0 || val >= 65536 {
+				v.addError(fmt.Sprintf("%s: container[%d].ports[%d].containerPort value out of range", filename, containerIndex, portIndex))
+			}
+		case float64:
+			// YAML numbers часто парсятся как float64
+			if val <= 0 || val >= 65536 {
+				v.addError(fmt.Sprintf("%s: container[%d].ports[%d].containerPort value out of range", filename, containerIndex, portIndex))
+			}
+		default:
+			v.addError(fmt.Sprintf("%s: container[%d].ports[%d].containerPort must be integer", filename, containerIndex, portIndex))
+		}
+	}
+
+	// protocol (optional)
+	if protocol, exists := port["protocol"]; exists {
+		if protocolStr, ok := protocol.(string); ok {
+			if protocolStr != "TCP" && protocolStr != "UDP" {
+				v.addError(fmt.Sprintf("%s: container[%d].ports[%d].protocol must be 'TCP' or 'UDP'", filename, containerIndex, portIndex))
+			}
+		} else {
+			v.addError(fmt.Sprintf("%s: container[%d].ports[%d].protocol must be string", filename, containerIndex, portIndex))
+		}
+	}
+}
+
+func (v *Validator) validateResources(resources map[string]interface{}, containerIndex int, filename string) {
+	// requests (optional)
+	if requests, exists := resources["requests"]; exists {
+		if requestsMap, ok := requests.(map[string]interface{}); ok {
+			v.validateResourceRequirements(requestsMap, containerIndex, "requests", filename)
+		} else {
+			v.addError(fmt.Sprintf("%s: container[%d].resources.requests must be an object", filename, containerIndex))
+		}
+	}
+
+	// limits (optional)
+	if limits, exists := resources["limits"]; exists {
+		if limitsMap, ok := limits.(map[string]interface{}); ok {
+			v.validateResourceRequirements(limitsMap, containerIndex, "limits", filename)
+		} else {
+			v.addError(fmt.Sprintf("%s: container[%d].resources.limits must be an object", filename, containerIndex))
+		}
+	}
+}
+
+func (v *Validator) validateResourceRequirements(resources map[string]interface{}, containerIndex int, resourceType string, filename string) {
+	for key, value := range resources {
+		switch key {
+		case "cpu":
+			switch val := value.(type) {
+			case int:
+				// OK
+			case float64:
+				// OK - YAML numbers часто парсятся как float64
+			case string:
+				v.addError(fmt.Sprintf("%s: container[%d].resources.%s.cpu must be int", filename, containerIndex, resourceType))
+			default:
+				v.addError(fmt.Sprintf("%s: container[%d].resources.%s.cpu must be int", filename, containerIndex, resourceType))
+			}
+		case "memory":
+			if memoryStr, ok := value.(string); ok {
+				validSuffixes := []string{"Gi", "Mi", "Ki"}
+				valid := false
+				for _, suffix := range validSuffixes {
+					if strings.HasSuffix(memoryStr, suffix) {
+						valid = true
+						break
+					}
+				}
+				if !valid {
+					v.addError(fmt.Sprintf("%s: container[%d].resources.%s.memory must end with Gi, Mi, or Ki", filename, containerIndex, resourceType))
+				}
+			} else {
+				v.addError(fmt.Sprintf("%s: container[%d].resources.%s.memory must be string", filename, containerIndex, resourceType))
+			}
+		default:
+			v.addError(fmt.Sprintf("%s: container[%d].resources.%s.%s: unknown resource type", filename, containerIndex, resourceType, key))
+		}
+	}
+}
+
+func (v *Validator) validateProbe(probe map[string]interface{}, containerIndex int, probeType string, filename string) {
+	if httpGet, exists := probe["httpGet"]; !exists {
+		v.addError(fmt.Sprintf("%s: container[%d].%s.httpGet is required", filename, containerIndex, probeType))
+	} else if httpGetMap, ok := httpGet.(map[string]interface{}); ok {
+		// path
+		if path, exists := httpGetMap["path"]; !exists {
+			v.addError(fmt.Sprintf("%s: container[%d].%s.httpGet.path is required", filename, containerIndex, probeType))
+		} else if pathStr, ok := path.(string); ok {
+			if !strings.HasPrefix(pathStr, "/") {
+				v.addError(fmt.Sprintf("%s: container[%d].%s.httpGet.path must be absolute", filename, containerIndex, probeType))
+			}
+		} else {
+			v.addError(fmt.Sprintf("%s: container[%d].%s.httpGet.path must be string", filename, containerIndex, probeType))
+		}
+
+		// port
+		if port, exists := httpGetMap["port"]; !exists {
+			v.addError(fmt.Sprintf("%s: container[%d].%s.httpGet.port is required", filename, containerIndex, probeType))
+		} else {
+			switch val := port.(type) {
+			case int:
+				if val <= 0 || val >= 65536 {
+					v.addError(fmt.Sprintf("%s: container[%d].%s.httpGet.port must be between 1 and 65535", filename, containerIndex, probeType))
+				}
+			case float64:
+				if val <= 0 || val >= 65536 {
+					v.addError(fmt.Sprintf("%s: container[%d].%s.httpGet.port must be between 1 and 65535", filename, containerIndex, probeType))
+				}
+			default:
+				v.addError(fmt.Sprintf("%s: container[%d].%s.httpGet.port must be integer", filename, containerIndex, probeType))
+			}
+		}
+	} else {
+		v.addError(fmt.Sprintf("%s: container[%d].%s.httpGet must be an object", filename, containerIndex, probeType))
+	}
 }

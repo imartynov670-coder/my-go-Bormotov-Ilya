@@ -21,8 +21,11 @@ func main() {
 	}
 
 	// Валидация YAML
-	if err := validateYAML(data); err != nil {
-		fmt.Printf("Validation failed: %v\n", err)
+	errors := validateYAML(data, filename)
+	if len(errors) > 0 {
+		for _, err := range errors {
+			fmt.Println(err)
+		}
 		os.Exit(1)
 	}
 
