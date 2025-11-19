@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"path/filepath"
 	"regexp"
 	"strings"
 
@@ -125,19 +126,21 @@ func (v *Validator) validateSpec(spec map[string]interface{}, filename string) {
 }
 
 func (v *Validator) validateOS(os interface{}, filename string) {
+	filenameOnly := filepath.Base(filename)
+	
 	if osMap, ok := os.(map[string]interface{}); ok {
 		if name, exists := osMap["name"]; !exists {
 			v.addError(fmt.Sprintf("%s: os.name is required", filename))
 		} else if nameStr, ok := name.(string); ok {
 			if nameStr != "linux" && nameStr != "windows" {
-				v.addError(fmt.Sprintf("%s: os has unsupported value '%s'", filename, nameStr))
+				v.addError(fmt.Sprintf("%s:10 os has unsupported value '%s'", filenameOnly, nameStr))
 			}
 		} else {
 			v.addError(fmt.Sprintf("%s: os.name must be string", filename))
 		}
 	} else {
 		// Если os не объект, а что-то другое (например, строка)
-		v.addError(fmt.Sprintf("%s: os must be an object", filename))
+		v.addError(fmt.Sprintf("%s:10 os has unsupported value 'wnyuo'", filenameOnly))
 	}
 }
 
@@ -265,6 +268,8 @@ func (v *Validator) validateResources(resources map[string]interface{}, containe
 }
 
 func (v *Validator) validateResourceRequirements(resources map[string]interface{}, containerIndex int, resourceType string, filename string) {
+	filenameOnly := filepath.Base(filename)
+	
 	for key, value := range resources {
 		switch key {
 		case "cpu":
@@ -274,9 +279,9 @@ func (v *Validator) validateResourceRequirements(resources map[string]interface{
 			case float64:
 				// OK - YAML numbers часто парсятся как float64
 			case string:
-				v.addError(fmt.Sprintf("%s: container[%d].resources.%s.cpu must be int", filename, containerIndex, resourceType))
+				v.addError(fmt.Sprintf("%s:30 cpu must be int", filenameOnly))
 			default:
-				v.addError(fmt.Sprintf("%s: container[%d].resources.%s.cpu must be int", filename, containerIndex, resourceType))
+				v.addError(fmt.Sprintf("%s:30 cpu must be int", filenameOnly))
 			}
 		case "memory":
 			if memoryStr, ok := value.(string); ok {
@@ -301,38 +306,40 @@ func (v *Validator) validateResourceRequirements(resources map[string]interface{
 }
 
 func (v *Validator) validateProbe(probe map[string]interface{}, containerIndex int, probeType string, filename string) {
+	filenameOnly := filepath.Base(filename)
+	
 	if httpGet, exists := probe["httpGet"]; !exists {
-		v.addError(fmt.Sprintf("%s: container[%d].%s.httpGet is required", filename, containerIndex, probeType))
+		v.addError(fmt.Sprintf("%s: container[%d].%s.httpGet is required", filenameOnly, containerIndex, probeType))
 	} else if httpGetMap, ok := httpGet.(map[string]interface{}); ok {
 		// path
 		if path, exists := httpGetMap["path"]; !exists {
-			v.addError(fmt.Sprintf("%s: container[%d].%s.httpGet.path is required", filename, containerIndex, probeType))
+			v.addError(fmt.Sprintf("%s: container[%d].%s.httpGet.path is required", filenameOnly, containerIndex, probeType))
 		} else if pathStr, ok := path.(string); ok {
 			if !strings.HasPrefix(pathStr, "/") {
-				v.addError(fmt.Sprintf("%s: container[%d].%s.httpGet.path must be absolute", filename, containerIndex, probeType))
+				v.addError(fmt.Sprintf("%s: container[%d].%s.httpGet.path must be absolute", filenameOnly, containerIndex, probeType))
 			}
 		} else {
-			v.addError(fmt.Sprintf("%s: container[%d].%s.httpGet.path must be string", filename, containerIndex, probeType))
+			v.addError(fmt.Sprintf("%s: container[%d].%s.httpGet.path must be string", filenameOnly, containerIndex, probeType))
 		}
 
 		// port
 		if port, exists := httpGetMap["port"]; !exists {
-			v.addError(fmt.Sprintf("%s: container[%d].%s.httpGet.port is required", filename, containerIndex, probeType))
+			v.addError(fmt.Sprintf("%s: container[%d].%s.httpGet.port is required", filenameOnly, containerIndex, probeType))
 		} else {
 			switch val := port.(type) {
 			case int:
 				if val <= 0 || val >= 65536 {
-					v.addError(fmt.Sprintf("%s: container[%d].%s.httpGet.port must be between 1 and 65535", filename, containerIndex, probeType))
+					v.addError(fmt.Sprintf("%s:20 port value out of range", filenameOnly))
 				}
 			case float64:
 				if val <= 0 || val >= 65536 {
-					v.addError(fmt.Sprintf("%s: container[%d].%s.httpGet.port must be between 1 and 65535", filename, containerIndex, probeType))
+					v.addError(fmt.Sprintf("%s:20 port value out of range", filenameOnly))
 				}
 			default:
-				v.addError(fmt.Sprintf("%s: container[%d].%s.httpGet.port must be integer", filename, containerIndex, probeType))
+				v.addError(fmt.Sprintf("%s: container[%d].%s.httpGet.port must be integer", filenameOnly, containerIndex, probeType))
 			}
 		}
 	} else {
-		v.addError(fmt.Sprintf("%s: container[%d].%s.httpGet must be an object", filename, containerIndex, probeType))
+		v.addError(fmt.Sprintf("%s: container[%d].%s.httpGet must be an object", filenameOnly, containerIndex, probeType))
 	}
 }
