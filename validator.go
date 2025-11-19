@@ -268,7 +268,7 @@ func (v *Validator) validateResourceRequirements(resources map[string]interface{
 	for key, value := range resources {
 		switch key {
 		case "cpu":
-			switch val := value.(type) {
+			switch value.(type) {
 			case int:
 				// OK
 			case float64:
