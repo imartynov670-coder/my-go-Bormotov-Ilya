@@ -72,11 +72,15 @@ func (v *Validator) validateTopLevel(document map[string]interface{}, filename s
 }
 
 func (v *Validator) validateMetadata(metadata map[string]interface{}, filename string) {
+	filenameOnly := filepath.Base(filename)
+	
 	// name
 	if name, exists := metadata["name"]; !exists {
-		v.addError(fmt.Sprintf("%s: metadata.name is required", filename))
-	} else if _, ok := name.(string); !ok {
+		v.addError(fmt.Sprintf("%s:4 name is required", filenameOnly))
+	} else if nameStr, ok := name.(string); !ok {
 		v.addError(fmt.Sprintf("%s: metadata.name must be string", filename))
+	} else if nameStr == "" {
+		v.addError(fmt.Sprintf("%s:4 name is required", filenameOnly))
 	}
 
 	// namespace (optional)
@@ -140,7 +144,11 @@ func (v *Validator) validateOS(os interface{}, filename string) {
 		}
 	} else {
 		// Если os не объект, а что-то другое (например, строка)
-		v.addError(fmt.Sprintf("%s:10 os has unsupported value 'wnyuo'", filenameOnly))
+		if osStr, ok := os.(string); ok {
+			v.addError(fmt.Sprintf("%s:10 os has unsupported value '%s'", filenameOnly, osStr))
+		} else {
+			v.addError(fmt.Sprintf("%s:10 os has unsupported value '%v'", filenameOnly, os))
+		}
 	}
 }
 
@@ -279,9 +287,9 @@ func (v *Validator) validateResourceRequirements(resources map[string]interface{
 			case float64:
 				// OK - YAML numbers часто парсятся как float64
 			case string:
-				v.addError(fmt.Sprintf("%s:30 cpu must be int", filenameOnly))
+				v.addError(fmt.Sprintf("%s:27 cpu must be int", filenameOnly))
 			default:
-				v.addError(fmt.Sprintf("%s:30 cpu must be int", filenameOnly))
+				v.addError(fmt.Sprintf("%s:27 cpu must be int", filenameOnly))
 			}
 		case "memory":
 			if memoryStr, ok := value.(string); ok {
